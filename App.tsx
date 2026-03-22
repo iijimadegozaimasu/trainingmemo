@@ -28,7 +28,6 @@ const App = () => {
     const [newExerciseInput, setNewExerciseInput] = useState('');
     const [weight, setWeight] = useState('');
     const [reps, setReps] = useState('');
-    const [sets, setSets] = useState('');
     
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedDateStr, setSelectedDateStr] = useState(null);
@@ -86,13 +85,13 @@ const App = () => {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (!exercise || !weight || !reps || !sets) {
+        if (!exercise || !weight || !reps) {
             alert('項目をすべて入力・選択してください。');
             return;
         }
         
-        if (Number(weight) <= 0 || Number(reps) <= 0 || Number(sets) <= 0) {
-            alert('重量、回数、セット数は0より大きい値を入力してください。');
+        if (Number(weight) <= 0 || Number(reps) <= 0) {
+            alert('重量、回数は0より大きい値を入力してください。');
             return;
         }
 
@@ -103,17 +102,16 @@ const App = () => {
             exercise,
             weight,
             reps,
-            sets,
+            timestamp: new Date().getTime()
         };
 
         setRecords([newRecord, ...records]);
-        setWeight('');
+        // 重量と回数は入力しやすいようにあえて重量は残し、回数はクリア
         setReps('');
-        setSets('');
     };
 
     const deleteRecord = (id) => {
-        if (confirm('この記録を削除しますか？')) {
+        if (confirm('このセットの記録を削除しますか？')) {
             setRecords(records.filter(record => record.id !== id));
         }
     };
@@ -151,7 +149,36 @@ const App = () => {
     const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
     const toggleDateSelection = (dateStr) => setSelectedDateStr(selectedDateStr === dateStr ? null : dateStr);
     const filteredRecords = selectedDateStr ? records.filter(r => r.date === selectedDateStr) : records;
+    
+    // 履歴を種目ごとにグループ化する関数
+    const groupedRecords = useMemo(() => {
+        const groups = [];
+        filteredRecords.forEach(record => {
+            const key = `${record.date}-${record.exercise}`;
+            let group = groups.find(g => g.key === key);
+            if (!group) {
+                group = {
+                    key,
+                    date: record.date,
+                    exercise: record.exercise,
+                    category: record.category,
+                    sets: []
+                };
+                groups.push(group);
+            }
+            group.sets.push(record);
+        });
+        groups.forEach(group => {
+            group.sets.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        });
+        return groups;
+    }, [filteredRecords]);
+
+    // 現在選択中の種目の今日のセット数を計算
     const todayStr = new Date().toLocaleDateString('ja-JP');
+    const currentExerciseTodaySets = useMemo(() => {
+        return records.filter(r => r.date === todayStr && r.exercise === exercise).length;
+    }, [records, exercise, todayStr]);
 
     return (
         <div className="container">
@@ -205,24 +232,31 @@ const App = () => {
                         </button>
                     </div>
                     
-                    <div className="form-row">
-                        <div className="form-group">
-                            <label>重量 (kg)</label>
-                            <input type="text" inputMode="decimal" placeholder="60" value={weight} onChange={(e) => setWeight(toHankaku(e.target.value))} required />
+                    <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px dashed #cbd5e1', marginBottom: '1rem' }}>
+                        <div style={{ marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontWeight: 'bold', color: '#334155' }}>
+                                {exercise} <span style={{ color: var(--primary-color) }}>第 {currentExerciseTodaySets + 1} セット目</span> の記録
+                            </span>
+                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>今日: {currentExerciseTodaySets} セット完了</span>
                         </div>
-                        <div className="form-group">
-                            <label>回数</label>
-                            <input type="text" inputMode="numeric" placeholder="10" value={reps} onChange={(e) => setReps(toHankaku(e.target.value))} required />
-                        </div>
-                        <div className="form-group">
-                            <label>セット数</label>
-                            <input type="text" inputMode="numeric" placeholder="3" value={sets} onChange={(e) => setSets(toHankaku(e.target.value))} required />
+                        <div className="form-row">
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label>重量 (kg)</label>
+                                <input type="text" inputMode="decimal" placeholder="60" value={weight} onChange={(e) => setWeight(toHankaku(e.target.value))} required />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label>回数</label>
+                                <input type="text" inputMode="numeric" placeholder="10" value={reps} onChange={(e) => setReps(toHankaku(e.target.value))} required />
+                            </div>
                         </div>
                     </div>
 
-                    <button type="submit" style={{ fontSize: '1.1rem', padding: '1rem' }}>記録する</button>
+                    <button type="submit" style={{ fontSize: '1.1rem', padding: '1rem', marginTop: '0.5rem' }}>
+                        セットを保存 (Set {currentExerciseTodaySets + 1})
+                    </button>
                 </form>
             </div>
+
 
             <div className="calendar-container">
                 <div className="calendar-header">
@@ -261,18 +295,35 @@ const App = () => {
             </div>
 
             <div className="history-list">
-                {filteredRecords.length === 0 ? (
+                {groupedRecords.length === 0 ? (
                     <div className="empty-state">{selectedDateStr ? 'この日の記録はありません。' : '記録がまだありません。'}</div>
                 ) : (
-                    filteredRecords.map((record) => (
-                        <div key={record.id} className="record-card">
-                            <div className="record-info">
-                                <div className="record-date">{record.date}</div>
-                                <div className={`category-badge cat-${record.category || 'その他'}`}>{record.category || 'その他'}</div>
-                                <div className="record-exercise">{record.exercise}</div>
-                                <div className="record-stats">{record.weight}kg × {record.reps}回 × {record.sets}セット</div>
+                    groupedRecords.map((group) => (
+                        <div key={group.key} className="record-card" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                                <div className="record-info" style={{ flexGrow: 1 }}>
+                                    <div className="record-date">{group.date}</div>
+                                    <div className={`category-badge cat-${group.category || 'その他'}`}>{group.category || 'その他'}</div>
+                                    <div className="record-exercise" style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{group.exercise}</div>
+                                </div>
                             </div>
-                            <button className="delete-btn" onClick={() => deleteRecord(record.id)}>削除</button>
+                            <div style={{ width: '100%', background: '#f1f5f9', borderRadius: '8px', padding: '0.5rem' }}>
+                                {group.sets.map((set, index) => (
+                                    <div key={set.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.25rem 0.5rem', borderBottom: index < group.sets.length - 1 ? '1px solid #e2e8f0' : 'none' }}>
+                                        <div style={{ fontSize: '0.9rem' }}>
+                                            <span style={{ fontWeight: '600', color: '#64748b', marginRight: '0.5rem' }}>Set {index + 1}:</span>
+                                            {set.weight}kg × {set.reps}回
+                                        </div>
+                                        <button 
+                                            className="delete-btn" 
+                                            onClick={() => deleteRecord(set.id)}
+                                            style={{ padding: '2px 5px', fontSize: '0.75rem' }}
+                                        >
+                                            削除
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     ))
                 )}
